@@ -1,0 +1,39 @@
+services:
+  simple-form-app-fe:
+    build:
+      context: https://github.com/samuel-chabot/simple-form-app.git#main:src/fe/simple-form-app
+      dockerfile: ./Dockerfile
+    ports:
+      - 4200:80
+    depends_on:
+      - simple-form-app-api
+    networks:
+      - simple-form-net
+
+  simple-form-app-api:
+    build:
+      context: https://github.com/samuel-chabot/simple-form-app.git#main:src/be/SimpleFormApp
+      dockerfile: ./Dockerfile
+    environment:
+      Kestrel__Endpoints__Http__Url: "http://*:8080"
+      CONNECTIONSTRINGS__DEFAULT: "Server=db;Database=simple-form-db;Port=5432;User Id=postgres;Password=doNotUseThisPasswordInARealApplication;SSL Mode=Disable;Include Error Detail=true"
+    ports:
+      - 8080:8080
+    depends_on:
+      db:
+        condition: service_started
+    networks:
+      - simple-form-net
+
+  db:
+    image: postgres:13.13
+    environment:
+      POSTGRES_PASSWORD: doNotUseThisPasswordInARealApplication
+      POSTGRES_DB: simple-form-db
+    ports:
+      - 5432:5432
+    networks:
+      - simple-form-net
+
+networks:
+  simple-form-net:
