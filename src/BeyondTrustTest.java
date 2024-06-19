@@ -1,6 +1,9 @@
 import java.io.File;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.ProtocolException;
 import java.net.URI;
 import java.net.URL;
 import java.time.Duration;
@@ -11,10 +14,12 @@ import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.apache.http.HttpResponse;
+import org.apache.http.ParseException;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.json.simple.JSONObject;
 import org.openqa.selenium.By;
 import org.openqa.selenium.Keys;
 import org.openqa.selenium.WebDriver;
@@ -28,6 +33,7 @@ import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import org.openqa.selenium.support.ui.ExpectedConditions;
@@ -54,6 +60,7 @@ public class BeyondTrustTest {
 	private final String CREATE_SUCCESS_MESSAGE = "Item created successfully";
 	private final String DELETE_SUCCESS_MESSAGE = "Item deleted successfully";
 	private final String ERROR_MESSAGE = "Error occurred, check the network tab on your browser's developer tools for more details";
+	private final String API_POST_BODY = "{\"title\":\"Title\",\"applicationArea\":1, \"description\":\"Description\", \"dateTime\":\"1970-01-01T04:00:00.000Z\", \"tags\":[\"bug\"], \"resolved\":false, \"videoUrl\":\"\",\"contactEmail\":\"\"}";    
 	private final String BAD_VIDEO_URL_INPUT = "blah";
 	private final String REQUEST_FORM_SUFFIX = "/RequestForm";
 	private static final int POLLING = 60;
@@ -120,28 +127,21 @@ public class BeyondTrustTest {
 	@Test
 	private void successful_requestForm_apiCall() {
 		URL url;
+		int responseCode = 0;
+        
 		try {
 			url = new URL(SIMPLE_APP_BASE_URL + SIMPLE_APP_PORT_DELIMITER + SIMPLE_APP_PORT + SIMPLE_APP_API + REQUEST_FORM_SUFFIX);
-		
-			HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();  
-        	httpURLConnection.setRequestMethod("GET");
-			httpURLConnection.connect();
-			int responseCode = httpURLConnection.getResponseCode();
+			deleteTicketsApi(url, true);
+			responseCode = createTicketApi(url, API_POST_BODY); 
+			
+			responseCode = apiRequest(url,"GET", null);
 			if (responseCode == 200) {
-				String inline = "";
-				Scanner scanner;
-				scanner = new Scanner(url.openStream());
-				while (scanner.hasNext()) {
-					inline += scanner.nextLine();
-				}
-				scanner.close();
-				JsonElement json = JsonParser.parseString(inline);
-				for (int i=0; i < json.getAsJsonArray().size(); i++) {
-					System.out.printf("%s\n", json.getAsJsonArray().get(i).toString());
-				}
+				JsonElement json = getApiResponse(url);
+				Assert.assertTrue(json.getAsJsonArray().size() == 1);
+				
 			}
 			
-		} catch (Exception e) {
+		} catch (IOException | ParseException e) {
 			e.printStackTrace();
 		}
 				
@@ -149,9 +149,117 @@ public class BeyondTrustTest {
 	
 	@Test
 	private void successful_requestForm_id_apiCall() {
-		System.out.printf("I got nothing\n");
+		URL url, getSingleTicketUrl;
+		JsonElement json;
+		JsonElement singleElement;		
+		int responseCode = 0;
+		
+		try {
+			url = new URL(SIMPLE_APP_BASE_URL + SIMPLE_APP_PORT_DELIMITER + SIMPLE_APP_PORT + SIMPLE_APP_API + REQUEST_FORM_SUFFIX);
+			deleteTicketsApi(url, true);
+			responseCode = createTicketApi(url, API_POST_BODY); 
+			if(responseCode == 200) {
+				json = getApiResponse(url);
+				singleElement = json.getAsJsonArray().get(0);
+				String id = getTicketId(singleElement);
+				getSingleTicketUrl = new URL(SIMPLE_APP_BASE_URL + SIMPLE_APP_PORT_DELIMITER + SIMPLE_APP_PORT + SIMPLE_APP_API + REQUEST_FORM_SUFFIX + "/" + id);
+				responseCode = apiRequest(getSingleTicketUrl,"GET", null);
+				json = getApiResponse(getSingleTicketUrl);
+				Assert.assertEquals(getTicketId(json), id);
+			}
+		} catch (MalformedURLException e) {
+			e.printStackTrace();
+		}
+		
 	}
 	
+	private void deleteTicketsApi(URL url, boolean all) {
+		URL deleteUrl;
+		int responseCode = 0;
+		responseCode = apiRequest(url,"GET", null);
+		if (responseCode == 200) {
+			JsonElement json = getApiResponse(url);
+			for (int i=0; i < json.getAsJsonArray().size(); i++) {
+				JsonElement singleElement = json.getAsJsonArray().get(i);
+				String id = getTicketId(singleElement);
+				try {
+					deleteUrl = new URL(SIMPLE_APP_BASE_URL + SIMPLE_APP_PORT_DELIMITER + SIMPLE_APP_PORT + SIMPLE_APP_API + REQUEST_FORM_SUFFIX + "/" + id);
+					responseCode = apiRequest(deleteUrl,"DELETE", null);
+				} catch (MalformedURLException e) {
+					e.printStackTrace();
+				}
+				
+			}
+		}
+	}
+	
+	private int createTicketApi(URL url, String body) {
+		int responseCode = 0;
+		responseCode = apiRequest(url, "POST", body);
+		return (responseCode);
+	}
+	
+	private JsonElement getApiResponse(URL url) {
+		StringBuffer response = new StringBuffer();
+		Scanner scanner = null;
+		try {
+			scanner = new Scanner(url.openStream());
+			while (scanner.hasNext()) {
+				response.append(scanner.nextLine());
+			}
+			scanner.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		JsonElement json = JsonParser.parseString(response.toString());
+		return(json);
+	}
+	
+	private String getTicketId(JsonElement jelement) {
+		JsonObject rootObject = jelement.getAsJsonObject();
+		return(rootObject.get("id").getAsString());
+	}
+	
+	private int apiRequest(URL url, String method, String body) {
+		int responseCode = 0;
+		try {
+			HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();  
+			httpURLConnection.setRequestMethod(method);
+			httpURLConnection.setRequestProperty("Content-Type", "application/json");
+			httpURLConnection.setRequestProperty("Accept", "application/json, text/plain, */*");
+			
+			switch(method) {
+			case "GET":
+			case "DELETE":
+				break;
+			case "POST":
+			case "PUT":
+				if(body != null) {
+					httpURLConnection.setDoOutput(true);
+					try(OutputStream os = httpURLConnection.getOutputStream()) {
+					    byte[] input = body.getBytes("utf-8");
+					    os.write(input, 0, input.length);			
+					}
+				}
+				else {
+					System.out.printf("Body of POST call is null, no POST will be made\n");
+				}
+				break;
+			default:
+				System.out.printf("Unknown HTTP method specified: %s\n", method);
+			}
+
+			httpURLConnection.connect();
+			responseCode = httpURLConnection.getResponseCode();
+		} 
+		catch (ProtocolException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return(responseCode);	
+		
+	}
 	
 	private void setTicketField(String field, String value) {
 		WebElement el = driver.findElement(By.xpath("//*[@formcontrolname='" + field + "']"));
