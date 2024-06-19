@@ -1,27 +1,36 @@
 import java.io.File;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-
+import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.openqa.selenium.By;
 import org.openqa.selenium.Keys;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.interactions.Actions;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
+
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
+
 import org.openqa.selenium.support.ui.ExpectedConditions;
-import org.openqa.selenium.support.ui.Select;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 public class BeyondTrustTest {
@@ -33,7 +42,7 @@ public class BeyondTrustTest {
 	private final String SIMPLE_APP_BASE_URL = "http://localhost";
 	private final String SIMPLE_APP_PORT = "4200";
 	private final String SIMPLE_APP_PORT_DELIMITER = ":";
-	private final String SIMPLE_APP_API = "api";
+	private final String SIMPLE_APP_API = "/api";
 	private final String HOME_DIR = System.getProperty("user.home");
 	private final String CHROMEDRIVER_PATH = "/chromedriver.exe";
 	private final String DOCKER_SCRIPT_PATH = "/docker.sh";
@@ -41,10 +50,12 @@ public class BeyondTrustTest {
 	private final String CREATE_TICKET_XPATH = "//*[@href='/create']";
 	private final String SUBMIT_TICKET_XPATH = "/html/body/app-root/app-item/app-item-form/form/button";
 	private final String STATUS_MESSAGE_CSS_SELECTOR = "div.mat-mdc-snack-bar-label.mdc-snackbar__label";
+	private final String REQUEST_FORM_XPATH = "/html/body/app-root/app-item/app-item-form/form";
 	private final String CREATE_SUCCESS_MESSAGE = "Item created successfully";
 	private final String DELETE_SUCCESS_MESSAGE = "Item deleted successfully";
 	private final String ERROR_MESSAGE = "Error occurred, check the network tab on your browser's developer tools for more details";
 	private final String BAD_VIDEO_URL_INPUT = "blah";
+	private final String REQUEST_FORM_SUFFIX = "/RequestForm";
 	private static final int POLLING = 60;
 	private WebDriverWait wait;
 	
@@ -106,6 +117,42 @@ public class BeyondTrustTest {
 		Assert.assertEquals(message, ERROR_MESSAGE);		
 	}
 	
+	@Test
+	private void successful_requestForm_apiCall() {
+		URL url;
+		try {
+			url = new URL(SIMPLE_APP_BASE_URL + SIMPLE_APP_PORT_DELIMITER + SIMPLE_APP_PORT + SIMPLE_APP_API + REQUEST_FORM_SUFFIX);
+		
+			HttpURLConnection httpURLConnection = (HttpURLConnection) url.openConnection();  
+        	httpURLConnection.setRequestMethod("GET");
+			httpURLConnection.connect();
+			int responseCode = httpURLConnection.getResponseCode();
+			if (responseCode == 200) {
+				String inline = "";
+				Scanner scanner;
+				scanner = new Scanner(url.openStream());
+				while (scanner.hasNext()) {
+					inline += scanner.nextLine();
+				}
+				scanner.close();
+				JsonElement json = JsonParser.parseString(inline);
+				for (int i=0; i < json.getAsJsonArray().size(); i++) {
+					System.out.printf("%s\n", json.getAsJsonArray().get(i).toString());
+				}
+			}
+			
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+				
+	}
+	
+	@Test
+	private void successful_requestForm_id_apiCall() {
+		System.out.printf("I got nothing\n");
+	}
+	
+	
 	private void setTicketField(String field, String value) {
 		WebElement el = driver.findElement(By.xpath("//*[@formcontrolname='" + field + "']"));
 		el.click();
@@ -147,7 +194,7 @@ public class BeyondTrustTest {
 	private boolean checkForRequiredFieldError() {
 		boolean error = false;
 		
-		WebElement wel = driver.findElement(By.xpath("/html/body/app-root/app-item/app-item-form/form"));
+		WebElement wel = driver.findElement(By.xpath(REQUEST_FORM_XPATH));
 		if(wel.getAttribute("class").contains("ng-invalid")) {
 			List<WebElement> fields = driver.findElements(By.tagName("mat-form-field"));
 			for (WebElement field : fields) {
