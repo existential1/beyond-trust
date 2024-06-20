@@ -1,4 +1,4 @@
 # beyond-trust
 ## BeyondTrust Final
-### Requires Docker to running locally
+### Requires Docker to be running locally
 ### Execute as TestNG test
